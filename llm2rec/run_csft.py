@@ -90,12 +90,13 @@ def train(
     assert (
         base_model
     ), "Please specify a --base_model, e.g. --base_model='decapoda-research/llama-7b-hf'"
-    print(f"DEBUG: batch_size={batch_size}, micro_batch_size={micro_batch_size}, ddp={ddp}, world_size={world_size}")
-    gradient_accumulation_steps = batch_size // micro_batch_size
-    
     device_map = "auto"
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     ddp = world_size != 1
+    
+    print(f"DEBUG: batch_size={batch_size}, micro_batch_size={micro_batch_size}, ddp={ddp}, world_size={world_size}")
+    
+    gradient_accumulation_steps = batch_size // micro_batch_size
     if ddp:
         device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
         gradient_accumulation_steps = gradient_accumulation_steps // world_size
