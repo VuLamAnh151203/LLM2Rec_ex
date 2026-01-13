@@ -13,7 +13,7 @@
     "mlm_probability": 0.2,
     "overwrite_output_dir": true,
     "output_dir": "output/iem_stage1/Qwen2-0.5B-AmazonMix6-CSFT",
-    "evaluation_strategy": "steps",
+    "eval_strategy": "steps",
     "eval_steps": 100,
     "save_steps": 100,
     "stop_after_n_steps": 1000,

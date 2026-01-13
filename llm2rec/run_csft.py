@@ -203,11 +203,10 @@ def train(
             # evaluation_strategy="epoch",
             # save_strategy="epoch",
             max_steps=10000,
-            evaluation_strategy="steps",       # Changed from "epoch" to "steps"
+            eval_strategy="steps",       # Changed from "epoch" to "steps"
             eval_steps=2000,                   # Evaluate every 1000 steps
             save_strategy="steps",             # Changed from "epoch" to "steps"
             save_steps=2000,                   # Save checkpoint every 1000 steps
-
             output_dir=output_dir,
             save_total_limit=5,
             load_best_model_at_end=True,
