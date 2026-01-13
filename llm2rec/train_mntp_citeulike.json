@@ -16,7 +16,7 @@
     "eval_strategy": "no",
     "save_strategy": "steps",
     "save_steps": 500,
-    "stop_after_n_steps": 2000,
+    "stop_after_n_steps": 1000,
     "lora_r": null,
     "gradient_checkpointing": true,
     "torch_dtype": "bfloat16",

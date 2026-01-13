@@ -22,9 +22,10 @@ torchrun --nproc_per_node 1 --master_port=29500 \
     --wandb_run_name "Qwen2-0.5B-CSFT-CiteULike" \
     --category "CiteULike" \
     --train_from_scratch False \
-    --use_lora True \
-    --num_epochs 10 \
-    --batch_size 16 \
+    --use_lora False \
+    --learning_rate 3e-4 \
+    --num_epochs 100 \
+    --batch_size 128 \
     --micro_batch_size 4
 
 # Copy tokenizer to output for next stages

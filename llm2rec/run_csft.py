@@ -119,8 +119,8 @@ def train(
         if "Qwen" in base_model:
             print("Using Qwen model")
             lora_config = LoraConfig(
-                r=8,
-                lora_alpha=16,
+                r=32,
+                lora_alpha=64,
                 target_modules=[
                     "q_proj",
                     "v_proj",
