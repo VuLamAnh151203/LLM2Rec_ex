@@ -50,7 +50,7 @@ def get_cosine_schedule_with_warmup(
 
 def train(
     # model/data params
-    base_model: str = "/home/yzhe/workspace/huggingface_data/hub/Qwen2-0.5B",  # the only required argument
+    base_model: str = "Qwen/Qwen2-0.5B",  # the only required argument
     train_file: str="./data/AmazonMix6/5-core/train/AmazonMix-6.csv",
     eval_file: str="./data/AmazonMix6/5-core/valid/AmazonMix-6.csv",
     output_dir: str = "./output/Test-SFT",
@@ -81,6 +81,7 @@ def train(
     version: str = "base",
     train_from_scratch: bool = False,
 ):
+    print(base_model)
     os.environ['WANDB_PROJECT'] = wandb_project
     # print(train_file)
     category_dict = {"AmazonMix-6": "items", "Office_Products": "office products", "Books": "books", "Goodreads": "books", "Steam": "games", "CDs_and_Vinyl": "musics", "Toys_and_Games": "toys and games", "Video_Games": "video games", "Musical_Instruments": "music instruments", "Sports_and_Outdoors": "sports and outdoors", "Pet_Supplies": "pet supplies", "Arts_Crafts_and_Sewing": "arts products", "Movies": "movie", "Industrial_and_Scientific": "industrial and scientific", "Automotive": "automotive products", "Grocery_and_Gourmet_Food": "grocery and gourmet food", "Software": "software", "Pet_Supplies": "pet supply products", "CiteULike": "papers"}
