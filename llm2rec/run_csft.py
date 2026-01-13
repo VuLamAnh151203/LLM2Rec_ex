@@ -208,11 +208,11 @@ def train(
             optim="adamw_torch",
             # evaluation_strategy="epoch",
             # save_strategy="epoch",
-            max_steps=10000,
+            max_steps=20,
             eval_strategy="steps",       # Changed from "epoch" to "steps"
-            eval_steps=2000,                   # Evaluate every 1000 steps
+            eval_steps=10,                   # Evaluate every 1000 steps
             save_strategy="steps",             # Changed from "epoch" to "steps"
-            save_steps=2000,                   # Save checkpoint every 1000 steps
+            save_steps=10,                   # Save checkpoint every 1000 steps
             output_dir=output_dir,
             save_total_limit=5,
             load_best_model_at_end=True,
