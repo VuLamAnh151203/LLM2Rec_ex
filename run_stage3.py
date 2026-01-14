@@ -40,7 +40,10 @@ class StudentModel(nn.Module):
         # We assume item_embeddings are aligned with our internal item IDs used in mapping
         
         num_items, input_dim = item_embeddings.shape
-        self.item_embedding = nn.Embedding.from_pretrained(torch.FloatTensor(item_embeddings), freeze=True)
+        self.item_embedding = nn.Embedding.from_pretrained(
+            torch.FloatTensor(item_embeddings), 
+            freeze=True
+        )
         
         # User Encoder
         # input: Mean of History Item Embeddings (dim = input_dim)
@@ -77,10 +80,15 @@ class StudentModel(nn.Module):
         history_indices = torch.clamp(history_indices, -1, num_embeddings - 1)
         target_item_indices = torch.clamp(target_item_indices, 0, num_embeddings - 1)
         
+        # CRITICAL FIX: Replace -1 padding with 0 before embedding lookup
+        # PyTorch embedding doesn't support negative indices
+        # We'll use the mask later to ignore these positions anyway
+        history_indices_for_lookup = torch.where(history_indices == -1, torch.zeros_like(history_indices), history_indices)
+        
         # Get embeddings
         # [batch, max_len, dim]
         print(history_indices)
-        hist_embs = self.item_embedding(history_indices) 
+        hist_embs = self.item_embedding(history_indices_for_lookup) 
         
         # Mean pooling (ignoring padding if 0 is pad? Assume 0 is valid item? We need a pad idx)
         # Simple mean for now - let's assume we handle lengths or padding mask
