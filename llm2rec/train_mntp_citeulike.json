@@ -1,6 +1,6 @@
 {
     "model_name_or_path": "./output/Qwen2-0.5B-CSFT-CiteULike",
-    "dataset_name": "../ColdLLM-repo/data/CiteULike/llm2rec_processed/item_titles.txt",
+    "dataset_name": "/kaggle/input/llm2rec-data/CiteULike/llm2rec_processed/item_titles.txt",
     "per_device_train_batch_size": 32,
     "per_device_eval_batch_size": 32,
     "gradient_accumulation_steps": 1,
