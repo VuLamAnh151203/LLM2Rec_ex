@@ -153,10 +153,33 @@ def train_alignment(
         titles = [line.strip() for line in f if line.strip()]
     title_to_emb_idx = {t: i for i, t in enumerate(titles)}
     
-    with open(os.path.join(cf_teacher_dir, 'user_map.pkl'), 'rb') as f:
-        teacher_user_map = pickle.load(f)
-    with open(os.path.join(cf_teacher_dir, 'item_map.pkl'), 'rb') as f:
-        teacher_item_map = pickle.load(f) # Logic mapping item_id -> teacher_idx
+    
+    # Check if map files exist
+    user_map_path = os.path.join(cf_teacher_dir, 'user_map.pkl')
+    item_map_path = os.path.join(cf_teacher_dir, 'item_map.pkl')
+    
+    if os.path.exists(user_map_path):
+        with open(user_map_path, 'rb') as f:
+            teacher_user_map = pickle.load(f)
+    else:
+        print(f"Warning: {user_map_path} not found. Assuming Identity Mapping (User ID = Embedding Index).")
+        # We need max user ID to size the map? Or just assume function identity.
+        # Let's peek at train_file to find max ID or just use dict(zip(ids, ids))
+        # Better: Set flag to use identity in dataset.
+        # For now, let's build map from train_file assuming IDs are already 0-indexed integers
+        df_temp = pd.read_csv(train_file)
+        unique_users = df_temp['user_id'].unique()
+        teacher_user_map = {u: int(u) for u in unique_users} # Identity map
+        
+    if os.path.exists(item_map_path):
+        with open(item_map_path, 'rb') as f:
+            teacher_item_map = pickle.load(f)
+    else:
+         print(f"Warning: {item_map_path} not found. Assuming Identity Mapping (Item ID = Embedding Index).")
+         df_temp = pd.read_csv(train_file)
+         unique_items = df_temp['item_id'].unique()
+         teacher_item_map = {i: int(i) for i in unique_items}
+
         
     # We need to map Student Item Indices (Embedding Idx) -> Teacher Item Indices (CF Idx)
     # This is tricky without 'item_id' available in title map or vice versa.
