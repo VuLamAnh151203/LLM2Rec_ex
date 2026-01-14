@@ -1,5 +1,5 @@
 {
-    "model_name_or_path": "./output/iem_stage1/Qwen2-0.5B-CiteULike-CSFT/checkpoint-600",
+    "model_name_or_path": "./output/iem_stage1/Qwen2-0.5B-CiteULike-CSFT/checkpoint-717",
     "peft_model_name_or_path": null,
     "bidirectional": true,
     "pooling_mode": "mean",
@@ -22,7 +22,7 @@
     "simcse_dropout": 0.2,
     "save_only_model": false,
     "save_strategy": "steps",
-    "save_steps": 200,
+    "save_steps": 500,
     "stop_after_n_steps": 1000,
     "loss_scale": 10.0,
     "lora_r": null,
