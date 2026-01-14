@@ -39,6 +39,62 @@ class StudentModel(nn.Module):
             # "Weighted-only" mode: skip MLP alignment
             return mean_embs
 
+class AttentiveStudentModel(nn.Module):
+    """
+    User Encoder: Collaborative Multi-Head Attention over History Item Embeddings.
+    Preserves geometry by avoiding MLPs and staying in the embedding space.
+    """
+    def __init__(self, item_embeddings, num_heads=4):
+        super(AttentiveStudentModel, self).__init__()
+        num_items, input_dim = item_embeddings.shape
+        self.item_embedding = nn.Embedding.from_pretrained(
+            torch.FloatTensor(item_embeddings), 
+            freeze=True
+        )
+        self.num_heads = num_heads
+        # Step 3: K queries represent "One way of judging item importance"
+        # These are global trainable parameters that users attend to.
+        self.queries = nn.Parameter(torch.randn(num_heads, input_dim))
+        
+    def forward(self, history_indices, use_mlp=True):
+        # Note: use_mlp flag is mostly for feature parity with StudentModel
+        # history_indices: [batch, max_len]
+        num_embeddings = self.item_embedding.num_embeddings
+        history_indices = history_indices.long()
+        
+        # Defensive: Clamp to valid range
+        history_indices = torch.clamp(history_indices, -1, num_embeddings - 1)
+        
+        # Replace -1 padding with 0 for lookup
+        history_indices_for_lookup = torch.where(history_indices == -1, torch.zeros_like(history_indices), history_indices)
+        
+        # hist_embs: [batch, max_len, dim]
+        hist_embs = self.item_embedding(history_indices_for_lookup)
+        
+        # Step 4: Compute attention per head
+        # scores: [batch, num_heads, max_len]
+        # s_i^(k) = q_k^T * e_i
+        # Equivalent to Step 4.1 in user prompt
+        scores = torch.einsum('bsd,kd->bks', hist_embs, self.queries)
+        
+        # Masking for padding
+        mask = (history_indices != -1).float().unsqueeze(1) # [batch, 1, max_len]
+        scores = scores.masked_fill(mask == 0, -1e9)
+        
+        # Step 4.2: Normalize (weights)
+        weights = torch.softmax(scores, dim=-1) # [batch, num_heads, max_len]
+        
+        # Step 4.3: Aggregate head-specific user embeddings
+        # u^(k) = sum_i w_i^(k) * e_i
+        # head_vecs: [batch, num_heads, dim]
+        head_vecs = torch.einsum('bks,bsd->bkd', weights, hist_embs)
+        
+        # Step 5: Combine heads safely (average)
+        # u = 1/K * sum_k u^(k)
+        user_vec = head_vecs.mean(dim=1) # [batch, dim]
+        
+        return user_vec
+
 def run_inference(
     train_file,
     item_emb_file,
@@ -48,7 +104,8 @@ def run_inference(
     batch_size=256,
     top_k=20,
     max_hist_len=20,
-    use_mlp=True
+    use_mlp=True,
+    model_type="MLP"
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -59,8 +116,12 @@ def run_inference(
     num_item_embeddings = item_embeddings.shape[0]
 
     # 2. Load Student Model
-    print(f"Loading Student Model from {checkpoint_path}...")
-    student_model = StudentModel(item_embeddings).to(device)
+    print(f"Loading Student Model ({model_type}) from {checkpoint_path}...")
+    if model_type == "Attentive":
+        student_model = AttentiveStudentModel(item_embeddings).to(device)
+    else:
+        student_model = StudentModel(item_embeddings).to(device)
+        
     student_model.load_state_dict(torch.load(checkpoint_path, map_location=device))
     student_model.eval()
 
@@ -179,6 +240,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", default=256, type=int)
     parser.add_argument("--top_k", default=20, type=int)
     parser.add_argument("--no_mlp", action="store_true", help="Use weighted-only mode (skip MLP alignment)")
+    parser.add_argument("--model_type", default="MLP", choices=["MLP", "Attentive"])
     args = parser.parse_args()
     
     run_inference(
@@ -189,5 +251,6 @@ if __name__ == "__main__":
         args.output_file,
         args.batch_size,
         args.top_k,
-        use_mlp=not args.no_mlp
+        use_mlp=not args.no_mlp,
+        model_type=args.model_type
     )

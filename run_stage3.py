@@ -104,6 +104,65 @@ class StudentModel(nn.Module):
         scores = (user_vec * target_vec).sum(dim=-1)
         return scores, user_vec
 
+class AttentiveStudentModel(nn.Module):
+    """
+    User Encoder: Collaborative Multi-Head Attention over History Item Embeddings.
+    Preserves geometry by avoiding MLPs and staying in the embedding space.
+    """
+    def __init__(self, item_embeddings, num_heads=4):
+        super(AttentiveStudentModel, self).__init__()
+        num_items, input_dim = item_embeddings.shape
+        self.item_embedding = nn.Embedding.from_pretrained(
+            torch.FloatTensor(item_embeddings), 
+            freeze=True
+        )
+        self.num_heads = num_heads
+        # Step 3: K queries represent "One way of judging item importance"
+        # These are global trainable parameters that users attend to.
+        self.queries = nn.Parameter(torch.randn(num_heads, input_dim))
+        
+    def forward(self, history_indices, target_item_indices):
+        num_embeddings = self.item_embedding.num_embeddings
+        history_indices = history_indices.long()
+        target_item_indices = target_item_indices.long()
+        
+        # Defensive: Clamp to valid range
+        history_indices = torch.clamp(history_indices, -1, num_embeddings - 1)
+        target_item_indices = torch.clamp(target_item_indices, 0, num_embeddings - 1)
+        
+        # Replace -1 padding with 0 for lookup
+        history_indices_for_lookup = torch.where(history_indices == -1, torch.zeros_like(history_indices), history_indices)
+        
+        # hist_embs: [batch, max_len, dim]
+        hist_embs = self.item_embedding(history_indices_for_lookup)
+        
+        # Step 4: Compute attention per head
+        # scores: [batch, num_heads, max_len]
+        # s_i^(k) = q_k^T * e_i
+        scores = torch.einsum('bsd,kd->bks', hist_embs, self.queries)
+        
+        # Masking for padding
+        mask = (history_indices != -1).float().unsqueeze(1) # [batch, 1, max_len]
+        scores = scores.masked_fill(mask == 0, -1e9)
+        
+        # Step 4.2: Normalize (weights)
+        weights = torch.softmax(scores, dim=-1) # [batch, num_heads, max_len]
+        
+        # Step 4.3: Aggregate head-specific user embeddings
+        # u^(k) = sum_i w_i^(k) * e_i
+        # head_vecs: [batch, num_heads, dim]
+        head_vecs = torch.einsum('bks,bsd->bkd', weights, hist_embs)
+        
+        # Step 5: Combine heads safely (average)
+        # u = 1/K * sum_k u^(k)
+        user_vec = head_vecs.mean(dim=1) # [batch, dim]
+        
+        target_vec = self.item_embedding(target_item_indices) # [batch, dim]
+        
+        # Final Score: Dot product in the CF space
+        scores = (user_vec * target_vec).sum(dim=-1)
+        return scores, user_vec
+
 # --- Data ---
 class AlignmentDataset(Dataset):
     def __init__(self, data_df, title_to_emb_idx, user_map, num_embeddings, max_hist_len=20):
@@ -182,7 +241,8 @@ def train_alignment(
     epochs=20,
     batch_size=128,
     lr=1e-3,
-    loss_type="BPR"
+    loss_type="BPR",
+    model_type="MLP"
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
@@ -306,7 +366,12 @@ def train_alignment(
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
     # 3. Models
-    student_model = StudentModel(item_embeddings).to(device)
+    print(f"Initializing Student Model ({model_type})...")
+    if model_type == "Attentive":
+        student_model = AttentiveStudentModel(item_embeddings).to(device)
+    else:
+        student_model = StudentModel(item_embeddings).to(device)
+        
     optimizer = optim.Adam(student_model.parameters(), lr=lr)
     
     # Load Teacher
@@ -558,6 +623,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument("--lr", default=1e-3, type=float)
     parser.add_argument("--loss_type", default="BPR", choices=["BPR", "InfoNCE"])
+    parser.add_argument("--model_type", default="MLP", choices=["MLP", "Attentive"])
+    
     args = parser.parse_args()
     
     train_alignment(
@@ -569,5 +636,6 @@ if __name__ == "__main__":
         loss_type=args.loss_type,
         epochs = args.epochs,
         batch_size = args.batch_size,
-        lr = args.lr
+        lr = args.lr,
+        model_type=args.model_type
     )
