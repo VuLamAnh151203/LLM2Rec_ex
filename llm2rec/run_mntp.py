@@ -36,7 +36,7 @@ try:
 except ImportError:
     from transformers.utils import is_torch_xla_available as is_torch_tpu_available
 from transformers.trainer_utils import get_last_checkpoint
-from transformers.utils import send_example_telemetry
+
 from transformers.utils.versions import require_version
 
 from peft import LoraConfig, get_peft_model
@@ -483,7 +483,7 @@ def main():
 
     # Sending telemetry. Tracking the example usage helps us better allocate resources to maintain them. The
     # information sent is the one passed as arguments along with your Python/PyTorch versions.
-    send_example_telemetry("run_mlm", model_args, data_args)
+
 
     # Setup logging
     logging.basicConfig(
