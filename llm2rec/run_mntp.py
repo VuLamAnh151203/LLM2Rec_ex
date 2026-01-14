@@ -28,9 +28,13 @@ from transformers import (
     Trainer,
     TrainingArguments,
     TrainerCallback,
-    is_torch_tpu_available,
     set_seed,
 )
+
+try:
+    from transformers.utils import is_torch_tpu_available
+except ImportError:
+    from transformers.utils import is_torch_xla_available as is_torch_tpu_available
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import send_example_telemetry
 from transformers.utils.versions import require_version
