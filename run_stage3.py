@@ -33,7 +33,7 @@ class StudentModel(nn.Module):
     User Encoder: MLP(Mean(History_Embeddings)) 
     Item Encoder: Identity (Static Embeddings)
     """
-    def __init__(self, item_embeddings, hidden_dim=256, output_dim=128):
+    def __init__(self, item_embeddings, hidden_dim=512, output_dim=128):
         super(StudentModel, self).__init__()
         # Static Item Embeddings (Frozen)
         # item_embeddings: numpy array [num_items, input_dim]
@@ -402,7 +402,10 @@ def train_alignment(
                     if num_hard > 0:
                         with torch.no_grad():
                             cf_scores = teacher_model(u_idxs[:num_hard])
-                            _, topk_t_idxs = torch.topk(cf_scores, k=min(50, len(teacher_item_map)), dim=1)
+                            # Restrict to warm items (only those present in mapping)
+                            cf_scores = cf_scores[:, :teacher_to_student_tensor.size(0)]
+                            
+                            _, topk_t_idxs = torch.topk(cf_scores, k=min(50, cf_scores.size(1)), dim=1)
                             rand_select = torch.randint(0, topk_t_idxs.size(1), (num_hard, 1), device=device)
                             selected_t_idxs = topk_t_idxs.gather(1, rand_select).squeeze(1)
                             
@@ -450,7 +453,10 @@ def train_alignment(
                         with torch.no_grad():
                             # Teacher Logic (Same as BPR)
                             cf_scores = teacher_model(u_idxs[:num_hard_users])
-                            _, topk_t_idxs = torch.topk(cf_scores, k=min(50, len(teacher_item_map)), dim=1)
+                            # Restrict to warm items (only those present in mapping)
+                            cf_scores = cf_scores[:, :teacher_to_student_tensor.size(0)]
+                            
+                            _, topk_t_idxs = torch.topk(cf_scores, k=min(50, cf_scores.size(1)), dim=1)
                             rand_select = torch.randint(0, topk_t_idxs.size(1), (num_hard_users, 1), device=device)
                             selected_t_idxs = topk_t_idxs.gather(1, rand_select).squeeze(1)
                             hard_neg_idxs = teacher_to_student_tensor[selected_t_idxs] # [num_hard]
