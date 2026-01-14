@@ -347,7 +347,22 @@ def train_alignment(
                             _, topk_t_idxs = torch.topk(cf_scores, k=min(50, len(teacher_item_map)), dim=1)
                             rand_select = torch.randint(0, topk_t_idxs.size(1), (num_hard, 1), device=device)
                             selected_t_idxs = topk_t_idxs.gather(1, rand_select).squeeze(1)
+                            
+                            # Convert to Student Indices
                             hard_neg_idxs = teacher_to_student_tensor[selected_t_idxs]
+                            
+                            # CRITICAL: Validate indices are within bounds
+                            # teacher_to_student might map to indices >= len(titles) if there's mismatch
+                            max_valid_idx = len(titles) - 1
+                            invalid_mask = hard_neg_idxs > max_valid_idx
+                            
+                            if invalid_mask.any():
+                                # Replace invalid indices with random valid ones
+                                num_invalid = invalid_mask.sum().item()
+                                hard_neg_idxs[invalid_mask] = torch.randint(0, len(titles), (num_invalid,), device=device)
+                                print(f"Warning: {num_invalid} hard negatives out of bounds, replaced with random")
+                            
+                            
                             neg_idxs[:num_hard] = hard_neg_idxs
                 
                 optimizer.zero_grad()
@@ -381,6 +396,14 @@ def train_alignment(
                             rand_select = torch.randint(0, topk_t_idxs.size(1), (num_hard_users, 1), device=device)
                             selected_t_idxs = topk_t_idxs.gather(1, rand_select).squeeze(1)
                             hard_neg_idxs = teacher_to_student_tensor[selected_t_idxs] # [num_hard]
+                            
+                            # Validate bounds
+                            max_valid_idx = len(titles) - 1
+                            invalid_mask = hard_neg_idxs > max_valid_idx
+                            if invalid_mask.any():
+                                num_invalid = invalid_mask.sum().item()
+                                hard_neg_idxs[invalid_mask] = torch.randint(0, len(titles), (num_invalid,), device=device)
+                                print(f"Warning (InfoNCE): {num_invalid} hard negatives out of bounds, replaced with random")
                         
                         hard_negs_vec = student_model.item_embedding(hard_neg_idxs) # [num_hard, Dim]
                         hard_negs_vec = torch.nn.functional.normalize(hard_negs_vec, dim=-1)
