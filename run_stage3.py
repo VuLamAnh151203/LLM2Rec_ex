@@ -80,11 +80,12 @@ class StudentModel(nn.Module):
 
 # --- Data ---
 class AlignmentDataset(Dataset):
-    def __init__(self, data_df, title_to_emb_idx, user_map, max_hist_len=20):
+    def __init__(self, data_df, title_to_emb_idx, user_map, num_embeddings, max_hist_len=20):
         self.data = data_df
         self.title_to_emb_idx = title_to_emb_idx
         self.user_map = user_map
         self.max_hist_len = max_hist_len
+        self.num_embeddings = num_embeddings  # Actual size of embedding table
         
         # Precompute indices
         self.samples = []
@@ -109,6 +110,18 @@ class AlignmentDataset(Dataset):
                 
             if not hist_idxs:
                 continue
+            
+            # CRITICAL: Validate all indices are within bounds
+            # This prevents CUDA assert errors during training
+            max_valid_idx = len(title_to_emb_idx) - 1
+            hist_idxs = [idx for idx in hist_idxs if 0 <= idx <= max_valid_idx]
+            
+            if not hist_idxs:  # All history indices were invalid
+                continue
+            
+            # Also validate target
+            if target_idx < 0 or target_idx > max_valid_idx:
+                continue
                 
             # Pad/Truncate
             hist_idxs = hist_idxs[-max_hist_len:]
@@ -118,7 +131,7 @@ class AlignmentDataset(Dataset):
             self.samples.append({
                 'u_idx': u_idx,
                 'target_idx': int(target_idx),
-                'hist_idxs': np.array(hist_idxs)
+                'hist_idxs': np.array(hist_idxs, dtype=np.int64)
             })
             
     def __len__(self):
