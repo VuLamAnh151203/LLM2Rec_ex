@@ -227,8 +227,8 @@ def train_alignment(
     else:
         # Fallback: Load separate PT files (user_embedding.pt, item_embedding.pt)
         # Assuming they are simple tensors [num_users, dim]
-        u_emb_path = os.path.join(cf_teacher_dir, 'user_embedding.pt')
-        i_emb_path = os.path.join(cf_teacher_dir, 'item_embedding.pt')
+        u_emb_path = os.path.join(cf_teacher_dir, 'CiteULike_cold_item_MF_user_emb.pt')
+        i_emb_path = os.path.join(cf_teacher_dir, 'CiteULike_cold_item_MF_item_emb.pt')
         
         print(f"Loading Teacher from separate files: {u_emb_path}, {i_emb_path}...")
         
