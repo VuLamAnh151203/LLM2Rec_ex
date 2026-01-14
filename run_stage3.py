@@ -15,7 +15,7 @@ import random
 # --- Model Definitions ---
 class CFTeacher(nn.Module):
     """ Simple BPR-MF for scoring, reusing structure from train_cf_teacher.py """
-    def __init__(self, num_users, num_items, embedding_dim=64):
+    def __init__(self, num_users, num_items, embedding_dim=2048):
         super(CFTeacher, self).__init__()
         self.user_emb = nn.Embedding(num_users, embedding_dim)
         self.item_emb = nn.Embedding(num_items, embedding_dim)
