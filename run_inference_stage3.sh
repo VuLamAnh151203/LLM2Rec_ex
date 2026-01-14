@@ -11,6 +11,7 @@ OUTPUT_FILE="./cold_item_recommendations.csv"
 
 TOP_K=20
 BATCH_SIZE=256
+NO_MLP="" # Set to "--no_mlp" for weighted-only mode
 
 echo "=== Stage 4: Inference (User Retrieval for Cold Items) ==="
 
@@ -21,7 +22,8 @@ python inference_stage3.py \
     --test_file "$TEST_FILE" \
     --output_file "$OUTPUT_FILE" \
     --top_k $TOP_K \
-    --batch_size $BATCH_SIZE
+    --batch_size $BATCH_SIZE \
+    $NO_MLP
 
 echo "=== Inference Complete ==="
 echo "Results saved to: $OUTPUT_FILE"

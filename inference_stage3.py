@@ -20,7 +20,7 @@ class StudentModel(nn.Module):
             nn.Linear(hidden_dim, input_dim)
         )
         
-    def forward(self, history_indices):
+    def forward(self, history_indices, use_mlp=True):
         # Optimized for inference: only compute user vectors
         num_embeddings = self.item_embedding.num_embeddings
         history_indices = history_indices.long()
@@ -32,8 +32,12 @@ class StudentModel(nn.Module):
         count = mask.sum(dim=1).clamp(min=1)
         mean_embs = sum_embs / count
         
-        user_vec = self.user_mlp(mean_embs)
-        return user_vec
+        if use_mlp:
+            user_vec = self.user_mlp(mean_embs)
+            return user_vec
+        else:
+            # "Weighted-only" mode: skip MLP alignment
+            return mean_embs
 
 def run_inference(
     train_file,
@@ -43,7 +47,8 @@ def run_inference(
     output_file,
     batch_size=256,
     top_k=20,
-    max_hist_len=20
+    max_hist_len=20,
+    use_mlp=True
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -106,7 +111,7 @@ def run_inference(
     with torch.no_grad():
         for i in tqdm(range(0, len(user_hist_matrix), batch_size), desc="User Embedding Batches"):
             batch_hist = torch.tensor(user_hist_matrix[i:i+batch_size], device=device)
-            user_vecs = student_model(batch_hist) # [B, Dim]
+            user_vecs = student_model(batch_hist, use_mlp=use_mlp) # [B, Dim]
             # Normalize for cosine similarity (optional, depends on Stage 3 loss, but good for ranking)
             user_vecs = torch.nn.functional.normalize(user_vecs, dim=-1)
             all_user_vecs.append(user_vecs.cpu())
@@ -173,6 +178,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_file", default="cold_item_recommendations.csv")
     parser.add_argument("--batch_size", default=256, type=int)
     parser.add_argument("--top_k", default=20, type=int)
+    parser.add_argument("--no_mlp", action="store_true", help="Use weighted-only mode (skip MLP alignment)")
     args = parser.parse_args()
     
     run_inference(
@@ -182,5 +188,6 @@ if __name__ == "__main__":
         args.test_file,
         args.output_file,
         args.batch_size,
-        args.top_k
+        args.top_k,
+        use_mlp=not args.no_mlp
     )
