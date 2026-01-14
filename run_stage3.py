@@ -59,6 +59,32 @@ class StudentModel(nn.Module):
         # history_indices: [batch, max_len] (padded with padding_idx?)
         # We need to handle padding for mean.
         
+        # CRITICAL: Validate indices before embedding lookup
+        num_embeddings = self.item_embedding.num_embeddings
+        
+        # Check history indices
+        max_hist_idx = history_indices.max().item()
+        min_hist_idx = history_indices.min().item()
+        
+        if max_hist_idx >= num_embeddings or (min_hist_idx < -1):
+            print(f"ERROR: Invalid history indices detected!")
+            print(f"  Embedding table size: {num_embeddings}")
+            print(f"  History index range: [{min_hist_idx}, {max_hist_idx}]")
+            print(f"  Invalid indices: {history_indices[history_indices >= num_embeddings]}")
+            # Clamp to valid range
+            history_indices = torch.clamp(history_indices, -1, num_embeddings - 1)
+        
+        # Check target indices
+        max_target_idx = target_item_indices.max().item()
+        min_target_idx = target_item_indices.min().item()
+        
+        if max_target_idx >= num_embeddings or min_target_idx < 0:
+            print(f"ERROR: Invalid target indices detected!")
+            print(f"  Embedding table size: {num_embeddings}")
+            print(f"  Target index range: [{min_target_idx}, {max_target_idx}]")
+            # Clamp to valid range
+            target_item_indices = torch.clamp(target_item_indices, 0, num_embeddings - 1)
+        
         # Get embeddings
         # [batch, max_len, dim]
         hist_embs = self.item_embedding(history_indices) 
