@@ -38,7 +38,6 @@ class StudentModel(nn.Module):
 def run_inference(
     train_file,
     item_emb_file,
-    item_titles_file,
     checkpoint_path,
     test_file,
     output_file,
@@ -49,12 +48,9 @@ def run_inference(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # 1. Load Embeddings & Titles
-    print("Loading Item Embeddings & Titles...")
+    # 1. Load Embeddings
+    print("Loading Item Embeddings...")
     item_embeddings = np.load(item_emb_file)
-    with open(item_titles_file, 'r', encoding='utf-8') as f:
-        titles = [line.strip() for line in f if line.strip()]
-    title_to_emb_idx = {t: i for i, t in enumerate(titles)}
     num_item_embeddings = item_embeddings.shape[0]
 
     # 2. Load Student Model
@@ -67,21 +63,33 @@ def run_inference(
     print(f"Building User History from {train_file}...")
     df_train = pd.read_csv(train_file)
     
+    # Robust column detection for train file
+    user_col = 'user_id' if 'user_id' in df_train.columns else 'user'
+    hist_col = 'history_item_id' if 'history_item_id' in df_train.columns else ('history' if 'history' in df_train.columns else None)
+    
+    if user_col not in df_train.columns:
+        raise KeyError(f"Could not find user column in {train_file}. Columns: {df_train.columns.tolist()}")
+    if hist_col is None:
+        raise KeyError(f"Could not find history ID column in {train_file}. Columns: {df_train.columns.tolist()}")
+
     # We need a unique list of users and their latest history
     user_histories = {}
     
-    # In CiteULike, 'history_item_title' is a string representation of a list
-    # We'll take the latest interaction for each user to represent their current profile
     for _, row in tqdm(df_train.iterrows(), total=len(df_train), desc="Processing Users"):
-        u_id = row['user_id']
+        u_id = row[user_col]
         if u_id not in user_histories:
             try:
-                hist_titles = eval(row['history_item_title'])
-                # Pre-process history to indices
-                hist_idxs = [title_to_emb_idx[t] for t in hist_titles if t in title_to_emb_idx]
+                hist_val = row[hist_col]
+                # Usually history_item_id is "[123, 456, ...]"
+                if isinstance(hist_val, str) and hist_val.startswith('['):
+                    hist_idxs = eval(hist_val)
+                else:
+                    # Maybe it's a single ID or already a list
+                    hist_idxs = hist_val if isinstance(hist_val, list) else [hist_val]
+                
                 if hist_idxs:
-                    # Validate and pad
-                    hist_idxs = [idx for idx in hist_idxs if 0 <= idx < num_item_embeddings]
+                    # Filter and pad
+                    hist_idxs = [int(idx) for idx in hist_idxs if 0 <= int(idx) < num_item_embeddings]
                     hist_idxs = hist_idxs[-max_hist_len:]
                     pad_len = max_hist_len - len(hist_idxs)
                     hist_idxs = hist_idxs + [-1] * pad_len
@@ -110,32 +118,30 @@ def run_inference(
     print(f"Processing Cold Items from {test_file}...")
     df_test = pd.read_csv(test_file)
     
-    # Need item_id -> title mapping if not in test_file
-    # Assuming test_file has 'item_id' and 'item_title' (standard for these scripts)
-    # If not, we might need item.csv. Let's assume it has them or we can lookup by ID.
+    # Robust column detection for test file
+    item_col = 'item_id' if 'item_id' in df_test.columns else 'item'
     
+    if item_col not in df_test.columns:
+        raise KeyError(f"Could not find item column in {test_file}. Columns: {df_test.columns.tolist()}")
+
+    # For each cold item_id, we just get its embedding from the matrix
     results = []
     
-    # Pre-calculate item embeddings for target cold items
-    target_items = df_test[['item_id', 'item_title']].drop_duplicates()
+    # Get unique cold item IDs
+    cold_item_ids = sorted(df_test[item_col].unique())
     
-    print(f"Ranking users for {len(target_items)} cold items...")
+    print(f"Ranking users for {len(cold_item_ids)} cold items...")
     
     all_user_vecs = all_user_vecs.to(device)
     
     with torch.no_grad():
-        for _, row in tqdm(target_items.iterrows(), total=len(target_items), desc="Item-to-User Ranking"):
-            item_id = row['item_id']
-            item_title = row['item_title']
-            
-            if item_title not in title_to_emb_idx:
-                print(f"Warning: Title '{item_title}' not found in item_titles.txt! Skipping.")
-                continue
-            
-            idx = title_to_emb_idx[item_title]
-            if idx >= num_item_embeddings:
+        for item_id in tqdm(cold_item_ids, desc="Item-to-User Ranking"):
+            idx = int(item_id)
+            if not (0 <= idx < num_item_embeddings):
+                print(f"Warning: Item ID {idx} is out of embedding bounds (0-{num_item_embeddings-1})! Skipping.")
                 continue
                 
+            # Take item embedding directly from StudentModel's static table
             item_vec = student_model.item_embedding(torch.tensor([idx], device=device)) # [1, Dim]
             item_vec = torch.nn.functional.normalize(item_vec, dim=-1)
             
@@ -146,7 +152,7 @@ def run_inference(
             top_scores, top_indices = torch.topk(scores, k=min(top_k, len(user_ids)))
             
             # Map indices back to user_ids
-            rec_user_ids = [user_ids[idx.item()] for idx in top_indices]
+            rec_user_ids = [user_ids[idx_val.item()] for idx_val in top_indices]
             
             results.append({
                 'item_id': item_id,
@@ -162,7 +168,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--train_file", required=True)
     parser.add_argument("--item_emb_file", required=True)
-    parser.add_argument("--item_titles_file", required=True)
     parser.add_argument("--checkpoint_path", required=True)
     parser.add_argument("--test_file", required=True)
     parser.add_argument("--output_file", default="cold_item_recommendations.csv")
@@ -173,7 +178,6 @@ if __name__ == "__main__":
     run_inference(
         args.train_file,
         args.item_emb_file,
-        args.item_titles_file,
         args.checkpoint_path,
         args.test_file,
         args.output_file,
