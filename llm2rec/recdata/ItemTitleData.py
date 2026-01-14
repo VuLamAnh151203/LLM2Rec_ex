@@ -36,36 +36,68 @@ class ItemTitleData(Dataset):
 
     def load_data(self, file_path: str = None):
         logger.info(f"Loading Rec data from {file_path}...")
-        # file path is actually a directory
 
         data_map = {}
         all_samples = []
         id_ = 0
-        for dataset in AMAZON_DATASET_NAME_MAPPING:
-            logger.info(f"Loading dataset {dataset}...")
-            if dataset not in data_map:
-                data_map[dataset] = []
 
-            dataset_raw_naming = AMAZON_DATASET_NAME_MAPPING[dataset]
+        if os.path.isfile(file_path):
+            # If file_path is a direct file, load it as a single dataset
+            logger.info(f"Detected file path. Loading single dataset from {file_path}...")
+            dataset_name = "Custom"
+            data_map[dataset_name] = []
+            
             dataset_samples = []
-            with open(os.path.join(file_path, dataset_raw_naming), "r") as f:
+            with open(file_path, "r") as f:
                 for line in f:
                     dataset_samples.append(line.strip())
-
+            
             for i, sample in enumerate(dataset_samples):
                 query = self.separator + sample
                 pos = self.separator + sample
-                data_map[dataset].append(id_)
+                data_map[dataset_name].append(id_)
 
                 all_samples.append(
                     DataSample(
                         id_=id_,
                         query=query,
                         positive=pos,
-                        task_name=dataset,
+                        task_name=dataset_name,
                     )
                 )
                 id_ += 1
+        else:
+            # Original logic for directory
+            for dataset in AMAZON_DATASET_NAME_MAPPING:
+                logger.info(f"Loading dataset {dataset}...")
+                if dataset not in data_map:
+                    data_map[dataset] = []
+
+                dataset_raw_naming = AMAZON_DATASET_NAME_MAPPING[dataset]
+                dataset_samples = []
+                full_path = os.path.join(file_path, dataset_raw_naming)
+                if not os.path.exists(full_path):
+                    logger.warning(f"File {full_path} not found. Skipping.")
+                    continue
+                    
+                with open(full_path, "r") as f:
+                    for line in f:
+                        dataset_samples.append(line.strip())
+
+                for i, sample in enumerate(dataset_samples):
+                    query = self.separator + sample
+                    pos = self.separator + sample
+                    data_map[dataset].append(id_)
+
+                    all_samples.append(
+                        DataSample(
+                            id_=id_,
+                            query=query,
+                            positive=pos,
+                            task_name=dataset,
+                        )
+                    )
+                    id_ += 1
 
         # combine split1 and split2
         new_data_map = {}
