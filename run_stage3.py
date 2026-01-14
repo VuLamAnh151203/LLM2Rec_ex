@@ -554,7 +554,7 @@ if __name__ == "__main__":
     parser.add_argument("--item_titles_file", required=True)
     parser.add_argument("--cf_teacher_dir", required=True)
     parser.add_argument("--output_dir", required=True)
-    parser.add_argument("--epochs", default=20, type=int)
+    parser.add_argument("--epochs", default=4, type=int)
     parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument("--lr", default=1e-3, type=float)
     parser.add_argument("--loss_type", default="BPR", choices=["BPR", "InfoNCE"])
