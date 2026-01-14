@@ -21,6 +21,6 @@
     "lora_r": null,
     "gradient_checkpointing": true,
     "torch_dtype": "bfloat16",
-    "attn_implementation": "flash_attention_2",
+    "attn_implementation": "sdpa",
     "trust_remote_code": true
 }
