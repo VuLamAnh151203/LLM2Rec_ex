@@ -96,7 +96,9 @@ class StudentModel(nn.Module):
         count = mask.sum(dim=1).clamp(min=1)
         mean_embs = sum_embs / count
         
-        user_vec = self.user_mlp(mean_embs) # [batch, dim]
+        user_vec = self.user_mlp(mean_embs) + mean_embs# [batch, dim]
+
+        user_vec = user_vec / user_vec.norm(dim=-1, keepdim=True)
         
         target_vec = self.item_embedding(target_item_indices) # [batch, dim]
         
