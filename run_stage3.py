@@ -295,6 +295,14 @@ def train_alignment(
         print(f"Will use embedding size ({num_item_embeddings}) for validation")
     
     dataset = AlignmentDataset(df, title_to_emb_idx, teacher_user_map, num_item_embeddings)
+    print(f"Dataset created with {len(dataset)} samples")
+    if len(dataset) > 0:
+        # Test first sample
+        u, h, t = dataset[0]
+        print(f"First sample - user: {u}, hist shape: {h.shape}, target: {t}")
+        print(f"  Hist indices: {h}")
+        print(f"  Target index: {t.item()}")
+        print(f"  Max hist: {h.max().item()}, Min hist: {h.min().item()}")
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
     # 3. Models
