@@ -106,12 +106,12 @@ class StudentModel(nn.Module):
 
 # --- Data ---
 class AlignmentDataset(Dataset):
-    def __init__(self, data_df, title_to_emb_idx, user_map, max_hist_len=20):
+    def __init__(self, data_df, title_to_emb_idx, user_map, num_embeddings, max_hist_len=20):
         self.data = data_df
         self.title_to_emb_idx = title_to_emb_idx
         self.user_map = user_map
         self.max_hist_len = max_hist_len
-        # self.num_embeddings = num_embeddings  # Actual size of embedding table
+        self.num_embeddings = num_embeddings  # Actual size of embedding table
         
         # Precompute indices
         self.samples = []
@@ -139,7 +139,8 @@ class AlignmentDataset(Dataset):
             
             # CRITICAL: Validate all indices are within bounds
             # This prevents CUDA assert errors during training
-            max_valid_idx = len(title_to_emb_idx) - 1
+            # Use ACTUAL embedding table size, not dictionary size
+            max_valid_idx = self.num_embeddings - 1
             hist_idxs = [idx for idx in hist_idxs if 0 <= idx <= max_valid_idx]
             
             if not hist_idxs:  # All history indices were invalid
@@ -284,7 +285,16 @@ def train_alignment(
     teacher_to_student_tensor = torch.tensor(teacher_to_student, device=device)
 
     # 2. Dataset
-    dataset = AlignmentDataset(df, title_to_emb_idx, teacher_user_map)
+    # CRITICAL: Pass actual embedding size, not dictionary size
+    num_item_embeddings = item_embeddings.shape[0]
+    print(f"Item embeddings shape: {item_embeddings.shape}")
+    print(f"Title dictionary size: {len(title_to_emb_idx)}")
+    
+    if num_item_embeddings != len(title_to_emb_idx):
+        print(f"WARNING: Mismatch between embeddings ({num_item_embeddings}) and titles ({len(title_to_emb_idx)})")
+        print(f"Will use embedding size ({num_item_embeddings}) for validation")
+    
+    dataset = AlignmentDataset(df, title_to_emb_idx, teacher_user_map, num_item_embeddings)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
     # 3. Models
