@@ -163,12 +163,16 @@ def train_alignment(
             teacher_user_map = pickle.load(f)
     else:
         print(f"Warning: {user_map_path} not found. Assuming Identity Mapping (User ID = Embedding Index).")
-        # We need max user ID to size the map? Or just assume function identity.
-        # Let's peek at train_file to find max ID or just use dict(zip(ids, ids))
-        # Better: Set flag to use identity in dataset.
-        # For now, let's build map from train_file assuming IDs are already 0-indexed integers
         df_temp = pd.read_csv(train_file)
-        unique_users = df_temp['user_id'].unique()
+        
+        # Handle both 'user_id' and 'user' column names
+        if 'user_id' in df_temp.columns:
+            unique_users = df_temp['user_id'].unique()
+        elif 'user' in df_temp.columns:
+            unique_users = df_temp['user'].unique()
+        else:
+            raise KeyError(f"train.csv must have either 'user_id' or 'user' column. Found: {df_temp.columns.tolist()}")
+            
         teacher_user_map = {u: int(u) for u in unique_users} # Identity map
         
     if os.path.exists(item_map_path):
@@ -177,7 +181,15 @@ def train_alignment(
     else:
          print(f"Warning: {item_map_path} not found. Assuming Identity Mapping (Item ID = Embedding Index).")
          df_temp = pd.read_csv(train_file)
-         unique_items = df_temp['item_id'].unique()
+         
+         # Handle both 'item_id' and 'item' column names
+         if 'item_id' in df_temp.columns:
+             unique_items = df_temp['item_id'].unique()
+         elif 'item' in df_temp.columns:
+             unique_items = df_temp['item'].unique()
+         else:
+             raise KeyError(f"train.csv must have either 'item_id' or 'item' column. Found: {df_temp.columns.tolist()}")
+             
          teacher_item_map = {i: int(i) for i in unique_items}
 
         
