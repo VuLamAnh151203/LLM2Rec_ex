@@ -184,8 +184,8 @@ def train_alignment(
     lr=1e-3,
     loss_type="BPR"
 ):
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = torch.device("cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cpu")
     
     # 1. Load Maps & Embeddings
     print("Loading Embeddings & Maps...")
@@ -456,7 +456,7 @@ def train_alignment(
                             # Restrict to warm items (only those present in mapping)
                             cf_scores = cf_scores[:, :teacher_to_student_tensor.size(0)]
                             
-                            _, topk_t_idxs = torch.topk(cf_scores, k=min(50, cf_scores.size(1)), dim=1)
+                            _, topk_t_idxs = torch.topk(cf_scores, k=min(20, cf_scores.size(1)), dim=1)
                             rand_select = torch.randint(0, topk_t_idxs.size(1), (num_hard_users, 1), device=device)
                             selected_t_idxs = topk_t_idxs.gather(1, rand_select).squeeze(1)
                             hard_neg_idxs = teacher_to_student_tensor[selected_t_idxs] # [num_hard]
@@ -566,5 +566,8 @@ if __name__ == "__main__":
         args.item_titles_file, 
         args.cf_teacher_dir, 
         args.output_dir,
-        loss_type=args.loss_type
+        loss_type=args.loss_type,
+        epochs = args.epochs,
+        batch_size = args.batch_size,
+        lr = args.lr
     )
