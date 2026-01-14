@@ -273,16 +273,31 @@ def train_alignment(
         u_emb_weights = torch.load(u_emb_path, map_location='cpu')
         i_emb_weights = torch.load(i_emb_path, map_location='cpu')
         
-        # Manually assign weights
-        # Note: BPRMF might have different param names if trained differently.
-        # Here we assume simple Embedding layers.
-        # Check shapes
-        if u_emb_weights.shape != teacher_model.user_emb.weight.shape:
-             print(f"WARNING: User Embedding Shape Mismatch! Loaded: {u_emb_weights.shape}, Model: {teacher_model.user_emb.weight.shape}")
-             # Provide option to force resize if needed, but error is safer.
-        if i_emb_weights.shape != teacher_model.item_emb.weight.shape:
-             print(f"WARNING: Item Embedding Shape Mismatch! Loaded: {i_emb_weights.shape}, Model: {teacher_model.item_emb.weight.shape}")
-
+        # Handle size mismatches
+        # The pre-trained embeddings might have different counts than current train.csv
+        expected_users = len(teacher_user_map)
+        expected_items = len(teacher_item_map)
+        
+        loaded_users = u_emb_weights.shape[0]
+        loaded_items = i_emb_weights.shape[0]
+        
+        print(f"Expected: {expected_users} users, {expected_items} items")
+        print(f"Loaded: {loaded_users} users, {loaded_items} items")
+        
+        if loaded_users != expected_users or loaded_items != expected_items:
+            print("WARNING: Size mismatch detected. Adjusting...")
+            
+            # Option 1: Resize the model to match loaded embeddings (safer)
+            # This assumes the loaded embeddings are the "ground truth"
+            teacher_model = CFTeacher(loaded_users, loaded_items, embedding_dim=u_emb_weights.shape[1])
+            
+            # Update maps to match (identity mapping up to loaded size)
+            teacher_user_map = {i: i for i in range(loaded_users)}
+            teacher_item_map = {i: i for i in range(loaded_items)}
+            
+            print(f"Resized teacher model to match loaded embeddings: {loaded_users} users, {loaded_items} items")
+        
+        # Now shapes should match
         teacher_model.user_emb.weight.data.copy_(u_emb_weights)
         teacher_model.item_emb.weight.data.copy_(i_emb_weights)
         
