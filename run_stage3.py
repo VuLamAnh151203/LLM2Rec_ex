@@ -141,7 +141,8 @@ def train_alignment(
     output_dir,
     epochs=20,
     batch_size=128,
-    lr=1e-3
+    lr=1e-3,
+    loss_type="BPR"
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -218,16 +219,49 @@ def train_alignment(
     # Load Teacher
     # Use dummy counts from map to init
     teacher_model = CFTeacher(len(teacher_user_map), len(teacher_item_map))
-    teacher_model.load_state_dict(torch.load(os.path.join(cf_teacher_dir, 'cf_teacher.pt')))
+    
+    teacher_ckpt_path = os.path.join(cf_teacher_dir, 'cf_teacher.pt')
+    if os.path.exists(teacher_ckpt_path):
+        print(f"Loading Teacher from {teacher_ckpt_path}...")
+        teacher_model.load_state_dict(torch.load(teacher_ckpt_path))
+    else:
+        # Fallback: Load separate PT files (user_embedding.pt, item_embedding.pt)
+        # Assuming they are simple tensors [num_users, dim]
+        u_emb_path = os.path.join(cf_teacher_dir, 'user_embedding.pt')
+        i_emb_path = os.path.join(cf_teacher_dir, 'item_embedding.pt')
+        
+        print(f"Loading Teacher from separate files: {u_emb_path}, {i_emb_path}...")
+        
+        if not os.path.exists(u_emb_path) or not os.path.exists(i_emb_path):
+             raise FileNotFoundError(f"Could not find 'cf_teacher.pt' OR pair ('user_embedding.pt', 'item_embedding.pt') in {cf_teacher_dir}")
+             
+        u_emb_weights = torch.load(u_emb_path, map_location='cpu')
+        i_emb_weights = torch.load(i_emb_path, map_location='cpu')
+        
+        # Manually assign weights
+        # Note: BPRMF might have different param names if trained differently.
+        # Here we assume simple Embedding layers.
+        # Check shapes
+        if u_emb_weights.shape != teacher_model.user_emb.weight.shape:
+             print(f"WARNING: User Embedding Shape Mismatch! Loaded: {u_emb_weights.shape}, Model: {teacher_model.user_emb.weight.shape}")
+             # Provide option to force resize if needed, but error is safer.
+        if i_emb_weights.shape != teacher_model.item_emb.weight.shape:
+             print(f"WARNING: Item Embedding Shape Mismatch! Loaded: {i_emb_weights.shape}, Model: {teacher_model.item_emb.weight.shape}")
+
+        teacher_model.user_emb.weight.data.copy_(u_emb_weights)
+        teacher_model.item_emb.weight.data.copy_(i_emb_weights)
+        
     teacher_model.to(device)
     teacher_model.eval()
     
     print("Starting Alignment Training...")
     
-    # Curriculum Schedule (Example)
+    # Curriculum Schedule
     # 0-25% epochs: Random
     # 25-50%: Mixed
     # 50%+: Hard
+    
+    criterion_infonce = nn.CrossEntropyLoss()
     
     for epoch in range(epochs):
         student_model.train()
@@ -244,46 +278,124 @@ def train_alignment(
             strategy = "hard"
             ratio = 1.0
             
-        pbar = tqdm(dataloader, desc=f"Ep {epoch+1} [{strategy}]")
+        pbar = tqdm(dataloader, desc=f"Ep {epoch+1} [{strategy}] Loss: {loss_type}")
         
         for u_idxs, hist_idxs, target_idxs in pbar:
-            # -1 padding handling in student model
             u_idxs, hist_idxs, target_idxs = u_idxs.to(device), hist_idxs.to(device), target_idxs.to(device)
-            
             batch_size_curr = u_idxs.size(0)
             
             # --- Negative Sampling ---
-            # Default Random
-            neg_idxs = torch.randint(0, len(titles), (batch_size_curr,), device=device) # Init random
-            
-            if strategy != "random":
-                num_hard = int(batch_size_curr * ratio)
-                if num_hard > 0:
-                    with torch.no_grad():
-                        # Score on Teacher [num_hard, K_teacher]
-                        cf_scores = teacher_model(u_idxs[:num_hard]) 
+            if loss_type == 'BPR':
+                # BPR: 1 Neg per Pos
+                neg_idxs = torch.randint(0, len(titles), (batch_size_curr,), device=device)
+                
+                if strategy != "random":
+                    num_hard = int(batch_size_curr * ratio)
+                    if num_hard > 0:
+                        with torch.no_grad():
+                            cf_scores = teacher_model(u_idxs[:num_hard])
+                            _, topk_t_idxs = torch.topk(cf_scores, k=min(50, len(teacher_item_map)), dim=1)
+                            rand_select = torch.randint(0, topk_t_idxs.size(1), (num_hard, 1), device=device)
+                            selected_t_idxs = topk_t_idxs.gather(1, rand_select).squeeze(1)
+                            hard_neg_idxs = teacher_to_student_tensor[selected_t_idxs]
+                            neg_idxs[:num_hard] = hard_neg_idxs
+                
+                optimizer.zero_grad()
+                pos_scores, _ = student_model(hist_idxs, target_idxs) # [B]
+                neg_scores, _ = student_model(hist_idxs, neg_idxs)    # [B]
+                loss = -torch.mean(torch.nn.functional.logsigmoid(pos_scores - neg_scores))
+
+            else: # InfoNCE
+                # InfoNCE: 1 Pos vs (Batch Negatives + Hard Negatives)
+                # To keep it simple and efficient: we use In-Batch Negatives as "Random"
+                # And we explicitly sample "Hard Negatives" and append to the batch
+                
+                # 1. Compute User & Positive Item Vectors
+                optimizer.zero_grad()
+                _, user_vec = student_model(hist_idxs, target_idxs) # [B, Dim]
+                target_vec = student_model.item_embedding(target_idxs) # [B, Dim]
+                
+                # Normalization typically good for InfoNCE (cosine sim)
+                user_vec = torch.nn.functional.normalize(user_vec, dim=-1)
+                target_vec = torch.nn.functional.normalize(target_vec, dim=-1)
+                
+                # 2. Hard Negatives (if strategy demands)
+                hard_negs_vec = None
+                if strategy != "random":
+                     num_hard_users = int(batch_size_curr * ratio)
+                     if num_hard_users > 0:
+                        with torch.no_grad():
+                            # Teacher Logic (Same as BPR)
+                            cf_scores = teacher_model(u_idxs[:num_hard_users])
+                            _, topk_t_idxs = torch.topk(cf_scores, k=min(50, len(teacher_item_map)), dim=1)
+                            rand_select = torch.randint(0, topk_t_idxs.size(1), (num_hard_users, 1), device=device)
+                            selected_t_idxs = topk_t_idxs.gather(1, rand_select).squeeze(1)
+                            hard_neg_idxs = teacher_to_student_tensor[selected_t_idxs] # [num_hard]
                         
-                        # Top K (e.g. 50)
-                        _, topk_t_idxs = torch.topk(cf_scores, k=min(50, len(teacher_item_map)), dim=1) 
-                        
-                        # Sample 1 from top K per user
-                        rand_select = torch.randint(0, topk_t_idxs.size(1), (num_hard, 1), device=device)
-                        selected_t_idxs = topk_t_idxs.gather(1, rand_select).squeeze(1)
-                        
-                        # Convert to Student Indices
-                        hard_neg_idxs = teacher_to_student_tensor[selected_t_idxs]
-                        
-                        # Replace in neg_idxs
-                        neg_idxs[:num_hard] = hard_neg_idxs
-            
-            optimizer.zero_grad()
-            pos_scores, _ = student_model(hist_idxs, target_idxs)
-            neg_scores, _ = student_model(hist_idxs, neg_idxs) # Negatives use same history context? No, negs are items.
-            # Student model needs (hist, item) to score.
-            # neg_idxs is just [batch] item indices.
-            # We call student forward with same history but negative target.
-            
-            loss = -torch.mean(torch.nn.functional.logsigmoid(pos_scores - neg_scores))
+                        hard_negs_vec = student_model.item_embedding(hard_neg_idxs) # [num_hard, Dim]
+                        hard_negs_vec = torch.nn.functional.normalize(hard_negs_vec, dim=-1)
+
+                # 3. Logits Calculation
+                # Positive Logits: (B, 1) dot product
+                pos_logits = (user_vec * target_vec).sum(dim=1, keepdim=True) 
+                
+                # In-Batch Negative Logits: (B, B)
+                # user[i] vs target[j] where i != j
+                # Matmul: [B, Dim] @ [Dim, B] -> [B, B]
+                all_neg_logits = torch.matmul(user_vec, target_vec.t())
+                
+                # Mask out diagonal (positives)
+                mask = torch.eye(batch_size_curr, device=device).bool()
+                all_neg_logits.masked_fill_(mask, -1e9) # Effectively zero probability
+                
+                # Append Hard Negatives if any
+                if hard_negs_vec is not None:
+                    # User[i] vs HardNeg[i] -> Diagonal ONLY?
+                    # Hard negatives are specific to user[i].
+                    # We compute dot product: (user[i] * hard[i]).sum()
+                    # But shape match: user_vec[:num_hard] and hard_negs_vec
+                    
+                    hard_term_logits = (user_vec[:hard_negs_vec.size(0)] * hard_negs_vec).sum(dim=1, keepdim=True) # [num_hard, 1]
+                    
+                    # We need to reshape/pad to join with all_neg_logits?
+                    # InfoNCE loss expects [B, 1+Negs].
+                    # But here Neg count varies per row if we just append hard to specific rows.
+                    # Simpler: Just Compute Loss manually or use padded Cat.
+                    
+                    # Standard Strategy: Positive is Col 0. Negatives are Cols 1..N.
+                    
+                    # Let's concat efficiently
+                    # Logits: [Pos (B,1), Negs (B, B-1), Hard (B, 1 or 0)]
+                    pass
+
+                # Let's simplify InfoNCE implementation:
+                # Temperature
+                temp = 0.07
+                
+                # Logits: [B, B] (diagonal is pos, off-diagonal is neg)
+                logits = torch.matmul(user_vec, target_vec.t()) / temp
+                labels = torch.arange(batch_size_curr, device=device)
+                
+                # If we have hard negatives, we must modify logits?
+                # Hard negatives are extra columns.
+                # If we add hard negatives, dimension becomes [B, B + K].
+                # But hard negatives are 1-per-user (at most).
+                # So we can add 1 column of "Hard Negatives".
+                
+                if hard_negs_vec is not None:
+                     # Compute scores for hard negatives [num_hard]
+                     # user_vec[:num_hard] dot hard_negs_vec
+                     hard_scores = (user_vec[:hard_negs_vec.size(0)] * hard_negs_vec).sum(dim=1) / temp
+                     
+                     # We need a tensor of shape [B, 1] for hard negatives (pad with -inf)
+                     hard_col = torch.full((batch_size_curr, 1), -1e9, device=device)
+                     hard_col[:hard_negs_vec.size(0), 0] = hard_scores
+                     
+                     # Concat to logits [B, B+1]
+                     logits = torch.cat([logits, hard_col], dim=1)
+                
+                loss = criterion_infonce(logits, labels)
+
             loss.backward()
             optimizer.step()
             
@@ -294,8 +406,9 @@ def train_alignment(
 
     # Save
     os.makedirs(output_dir, exist_ok=True)
-    torch.save(student_model.state_dict(), os.path.join(output_dir, "student_aligned.pt"))
-    print("Saved Stage 3 Model.")
+    save_name = f"student_aligned_{loss_type}.pt"
+    torch.save(student_model.state_dict(), os.path.join(output_dir, save_name))
+    print(f"Saved Stage 3 Model ({loss_type}).")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -304,6 +417,17 @@ if __name__ == "__main__":
     parser.add_argument("--item_titles_file", required=True)
     parser.add_argument("--cf_teacher_dir", required=True)
     parser.add_argument("--output_dir", required=True)
+    parser.add_argument("--epochs", default=20, type=int)
+    parser.add_argument("--batch_size", default=128, type=int)
+    parser.add_argument("--lr", default=1e-3, type=float)
+    parser.add_argument("--loss_type", default="BPR", choices=["BPR", "InfoNCE"])
     args = parser.parse_args()
     
-    train_alignment(args.train_file, args.item_emb_file, args.item_titles_file, args.cf_teacher_dir, args.output_dir)
+    train_alignment(
+        args.train_file, 
+        args.item_emb_file, 
+        args.item_titles_file, 
+        args.cf_teacher_dir, 
+        args.output_dir,
+        loss_type=args.loss_type
+    )

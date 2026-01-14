@@ -20,12 +20,17 @@ python train_cf_teacher.py \
     --output_dir "${TEACHER_DIR}" \
     --epochs 20
 
-echo "=== Stage 3.3: Train Alignment Model (Curriculum Learning) ==="
+
+# Options: "BPR" or "InfoNCE"
+LOSS_TYPE="BPR"
+
+echo "=== Stage 3.3: Train Alignment Model (Curriculum Learning) [Loss: ${LOSS_TYPE}] ==="
 python run_stage3.py \
     --train_file "${DATA_DIR}/train.csv" \
     --item_emb_file "${STAGE3_DIR}/item_embeddings.npy" \
     --item_titles_file "${DATA_DIR}/item_titles.txt" \
     --cf_teacher_dir "${TEACHER_DIR}" \
-    --output_dir "${STAGE3_DIR}/student_model"
+    --output_dir "${STAGE3_DIR}/student_model" \
+    --loss_type "${LOSS_TYPE}"
 
 echo "Stage 3 Complete!"
