@@ -16,6 +16,7 @@ class StudentModel(nn.Module):
         
         self.user_mlp = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),  
             nn.Linear(hidden_dim, input_dim)
         )
         
@@ -32,7 +33,9 @@ class StudentModel(nn.Module):
         mean_embs = sum_embs / count
         
         if use_mlp:
-            user_vec = self.user_mlp(mean_embs)
+            user_vec = self.user_mlp(mean_embs) + mean_embs # [batch, dim]
+
+            user_vec = user_vec / user_vec.norm(dim=-1, keepdim=True)
             return user_vec
         else:
             # "Weighted-only" mode: skip MLP alignment
