@@ -157,7 +157,8 @@ def train_alignment(
     lr=1e-3,
     loss_type="BPR"
 ):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
     
     # 1. Load Maps & Embeddings
     print("Loading Embeddings & Maps...")
