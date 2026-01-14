@@ -79,6 +79,7 @@ class StudentModel(nn.Module):
         
         # Get embeddings
         # [batch, max_len, dim]
+        print(history_indices)
         hist_embs = self.item_embedding(history_indices) 
         
         # Mean pooling (ignoring padding if 0 is pad? Assume 0 is valid item? We need a pad idx)
