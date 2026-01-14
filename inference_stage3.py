@@ -41,58 +41,83 @@ class StudentModel(nn.Module):
 
 class AttentiveStudentModel(nn.Module):
     """
-    User Encoder: Collaborative Multi-Head Attention over History Item Embeddings.
-    Preserves geometry by avoiding MLPs and staying in the embedding space.
+    Attentive Collaborative Filtering User Encoder
+
+    - Learns CF signal by reweighting interacted item embeddings
+    - Preserves embedding geometry (no MLP, no nonlinearity)
+    - Uses global trainable queries with temperature scaling
     """
-    def __init__(self, item_embeddings, num_heads=4):
-        super(AttentiveStudentModel, self).__init__()
-        num_items, input_dim = item_embeddings.shape
+
+    def __init__(
+        self,
+        item_embeddings,        # numpy array or tensor [num_items, dim]
+        num_heads=2,
+        temperature=0.1
+    ):
+        super().__init__()
+
+        num_items, dim = item_embeddings.shape
+
+        # Frozen CF item embeddings
         self.item_embedding = nn.Embedding.from_pretrained(
-            torch.FloatTensor(item_embeddings), 
+            torch.tensor(item_embeddings, dtype=torch.float32),
             freeze=True
         )
+
         self.num_heads = num_heads
-        # Step 3: K queries represent "One way of judging item importance"
-        # These are global trainable parameters that users attend to.
-        self.queries = nn.Parameter(torch.randn(num_heads, input_dim))
-        
-    def forward(self, history_indices, use_mlp=True):
-        # Note: use_mlp flag is mostly for feature parity with StudentModel
-        # history_indices: [batch, max_len]
-        num_embeddings = self.item_embedding.num_embeddings
-        history_indices = history_indices.long()
-        
-        # Defensive: Clamp to valid range
-        history_indices = torch.clamp(history_indices, -1, num_embeddings - 1)
-        
-        # Replace -1 padding with 0 for lookup
-        history_indices_for_lookup = torch.where(history_indices == -1, torch.zeros_like(history_indices), history_indices)
-        
-        # hist_embs: [batch, max_len, dim]
-        hist_embs = self.item_embedding(history_indices_for_lookup)
-        
-        # Step 4: Compute attention per head
-        # scores: [batch, num_heads, max_len]
-        # s_i^(k) = q_k^T * e_i
-        # Equivalent to Step 4.1 in user prompt
-        scores = torch.einsum('bsd,kd->bks', hist_embs, self.queries)
-        
-        # Masking for padding
-        mask = (history_indices != -1).float().unsqueeze(1) # [batch, 1, max_len]
-        scores = scores.masked_fill(mask == 0, -1e9)
-        
-        # Step 4.2: Normalize (weights)
-        weights = torch.softmax(scores, dim=-1) # [batch, num_heads, max_len]
-        
-        # Step 4.3: Aggregate head-specific user embeddings
-        # u^(k) = sum_i w_i^(k) * e_i
-        # head_vecs: [batch, num_heads, dim]
-        head_vecs = torch.einsum('bks,bsd->bkd', weights, hist_embs)
-        
-        # Step 5: Combine heads safely (average)
-        # u = 1/K * sum_k u^(k)
-        user_vec = head_vecs.mean(dim=1) # [batch, dim]
-        
+        self.temperature = temperature
+        self.dim = dim
+
+        # Global attention queries (CF-safe)
+        self.queries = nn.Parameter(torch.empty(num_heads, dim))
+        nn.init.normal_(self.queries, mean=0.0, std=0.1)
+
+    def forward(self, history_indices):
+        """
+        history_indices: LongTensor [batch, max_len]
+        padding index = -1
+        """
+
+        batch_size, max_len = history_indices.shape
+        num_items = self.item_embedding.num_embeddings
+
+        # Safety clamp
+        history_indices = history_indices.clamp(min=-1, max=num_items - 1)
+
+        # Replace padding index for lookup
+        lookup_indices = torch.where(
+            history_indices == -1,
+            torch.zeros_like(history_indices),
+            history_indices
+        )
+
+        # Item embeddings: [B, L, D]
+        hist_embs = self.item_embedding(lookup_indices)
+
+        # Attention scores: [B, K, L]
+        scores = torch.einsum(
+            "bld,kd->bkl",
+            hist_embs,
+            self.queries
+        )
+
+        # Padding mask
+        mask = (history_indices != -1).unsqueeze(1)  # [B, 1, L]
+        scores = scores.masked_fill(~mask, -1e9)
+
+        # Temperature-scaled softmax
+        attn = torch.softmax(scores / self.temperature, dim=-1)
+
+        # Head-wise aggregation: [B, K, D]
+        head_vecs = torch.einsum(
+            "bkl,bld->bkd",
+            attn,
+            hist_embs
+        )
+
+        # Combine heads (scale to preserve gradient magnitude)
+        user_vec = head_vecs.mean(dim=1) * self.num_heads  # [B, D]
+
         return user_vec
 
 def run_inference(
