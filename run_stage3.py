@@ -62,7 +62,18 @@ class StudentModel(nn.Module):
         # CRITICAL: Validate indices before embedding lookup
         num_embeddings = self.item_embedding.num_embeddings
         
-        # DEFENSIVE: Clamp ALL indices immediately to prevent any out-of-bounds access
+        # DEFENSIVE: Ensure correct dtype and clamp ALL indices
+        # Convert to long (int64) first to ensure compatibility
+        history_indices = history_indices.long()
+        target_item_indices = target_item_indices.long()
+        
+        # Debug: Check for invalid indices BEFORE clamping
+        if history_indices.max() >= num_embeddings or history_indices.min() < -1:
+            print(f"WARNING: Clamping history indices from [{history_indices.min().item()}, {history_indices.max().item()}] to [-1, {num_embeddings-1}]")
+        if target_item_indices.max() >= num_embeddings or target_item_indices.min() < 0:
+            print(f"WARNING: Clamping target indices from [{target_item_indices.min().item()}, {target_item_indices.max().item()}] to [0, {num_embeddings-1}]")
+        
+        # Clamp to valid range
         history_indices = torch.clamp(history_indices, -1, num_embeddings - 1)
         target_item_indices = torch.clamp(target_item_indices, 0, num_embeddings - 1)
         
