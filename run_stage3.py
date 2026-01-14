@@ -470,7 +470,7 @@ def train_alignment(
                             # Restrict to warm items (only those present in mapping)
                             cf_scores = cf_scores[:, :teacher_to_student_tensor.size(0)]
                             
-                            _, topk_t_idxs = torch.topk(cf_scores, k=min(50, cf_scores.size(1)), dim=1)
+                            _, topk_t_idxs = torch.topk(cf_scores, k=min(100, cf_scores.size(1)), dim=1)
                             rand_select = torch.randint(0, topk_t_idxs.size(1), (num_hard, 1), device=device)
                             selected_t_idxs = topk_t_idxs.gather(1, rand_select).squeeze(1)
                             
