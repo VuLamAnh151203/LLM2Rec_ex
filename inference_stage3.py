@@ -132,7 +132,8 @@ def run_inference(
     top_k=20,
     max_hist_len=20,
     use_mlp=True,
-    model_type="MLP"
+    model_type="MLP",
+    output_user_embedding = "./user_embedding"
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -252,10 +253,16 @@ def run_inference(
                 'top_user_ids': rec_user_ids
             })
 
+
+    
     # 6. Save Results
     df_results = pd.DataFrame(results)
     df_results.to_csv(output_file, index=False)
     print(f"Inference complete! Results saved to {output_file}")
+
+    #7. Save user embedding:
+    torch.save(all_user_vecs.detach().cpu(), output_user_embedding)
+    print(f"Storing user embedding into {output_user_embedding}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -264,6 +271,8 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint_path", required=True)
     parser.add_argument("--test_file", required=True)
     parser.add_argument("--output_file", default="cold_item_recommendations.csv")
+    parser.add_argument("--output_user_embedding", default="./user_embedding.pt")
+
     parser.add_argument("--batch_size", default=256, type=int)
     parser.add_argument("--top_k", default=20, type=int)
     parser.add_argument("--no_mlp", action="store_true", help="Use weighted-only mode (skip MLP alignment)")
@@ -279,5 +288,6 @@ if __name__ == "__main__":
         args.batch_size,
         args.top_k,
         use_mlp=not args.no_mlp,
-        model_type=args.model_type
+        model_type=args.model_type,
+        output_user_embedding= args.output_user_embedding
     )
