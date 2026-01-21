@@ -150,8 +150,9 @@ def run_inference(
         student_model = AttentiveStudentModel(item_embeddings).to(device)
     else:
         student_model = StudentModel(item_embeddings).to(device)
-        
-    student_model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+    
+    if use_mlp:
+        student_model.load_state_dict(torch.load(checkpoint_path, map_location=device))
     student_model.eval()
 
     # 3. Build User History Map from train_file
