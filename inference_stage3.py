@@ -140,7 +140,8 @@ def run_inference(
 
     # 1. Load Embeddings
     print("Loading Item Embeddings...")
-    item_embeddings = np.load(item_emb_file)
+    # item_embeddings = np.load(item_emb_file)
+    item_embeddings = torch.load(item_emb_file)
     num_item_embeddings = item_embeddings.shape[0]
 
     # 2. Load Student Model

@@ -35,9 +35,6 @@ class StudentModel(nn.Module):
     """
     def __init__(self, item_embeddings, hidden_dim=512, output_dim=128):
         super(StudentModel, self).__init__()
-        # Static Item Embeddings (Frozen)
-        # item_embeddings: numpy array [num_items, input_dim]
-        # We assume item_embeddings are aligned with our internal item IDs used in mapping
         
         num_items, input_dim = item_embeddings.shape
         self.item_embedding = nn.Embedding.from_pretrained(
@@ -45,11 +42,7 @@ class StudentModel(nn.Module):
             freeze=True
         )
         
-        # User Encoder
-        # input: Mean of History Item Embeddings (dim = input_dim)
-        # output: User Vector (dim = input_dim to match item space? Or project both?)
-        # Step 5 says: s(u, i) = g(H_u, e_i)
-        # Usually we want dot product similarity in same space.
+
         
         # User Projector
         self.user_mlp = nn.Sequential(
@@ -59,44 +52,30 @@ class StudentModel(nn.Module):
         )
         
     def forward(self, history_indices, target_item_indices):
-        # history_indices: [batch, max_len] (padded with padding_idx?)
-        # We need to handle padding for mean.
-        
-        # CRITICAL: Validate indices before embedding lookup
         num_embeddings = self.item_embedding.num_embeddings
         
-        # DEFENSIVE: Ensure correct dtype and clamp ALL indices
-        # Convert to long (int64) first to ensure compatibility
+
         history_indices = history_indices.long()
         target_item_indices = target_item_indices.long()
         
-        # Debug: Check for invalid indices BEFORE clamping
         if history_indices.max() >= num_embeddings or history_indices.min() < -1:
             print(f"WARNING: Clamping history indices from [{history_indices.min().item()}, {history_indices.max().item()}] to [-1, {num_embeddings-1}]")
         if target_item_indices.max() >= num_embeddings or target_item_indices.min() < 0:
             print(f"WARNING: Clamping target indices from [{target_item_indices.min().item()}, {target_item_indices.max().item()}] to [0, {num_embeddings-1}]")
         
-        # Clamp to valid range
         history_indices = torch.clamp(history_indices, -1, num_embeddings - 1)
         target_item_indices = torch.clamp(target_item_indices, 0, num_embeddings - 1)
         
-        # CRITICAL FIX: Replace -1 padding with 0 before embedding lookup
-        # PyTorch embedding doesn't support negative indices
-        # We'll use the mask later to ignore these positions anyway
         history_indices_for_lookup = torch.where(history_indices == -1, torch.zeros_like(history_indices), history_indices)
         
-        # Get embeddings
-        # [batch, max_len, dim]
+
         hist_embs = self.item_embedding(history_indices_for_lookup) 
-        
-        # Mean pooling (ignoring padding if 0 is pad? Assume 0 is valid item? We need a pad idx)
-        # Simple mean for now - let's assume we handle lengths or padding mask
         mask = (history_indices != -1).unsqueeze(-1).float() # [batch, max_len, 1]
         sum_embs = (hist_embs * mask).sum(dim=1)
         count = mask.sum(dim=1).clamp(min=1)
         mean_embs = sum_embs / count
         
-        user_vec = self.user_mlp(mean_embs) + mean_embs# [batch, dim]
+        user_vec = self.user_mlp(mean_embs)# [batch, dim]
 
         user_vec = user_vec / user_vec.norm(dim=-1, keepdim=True)
         
